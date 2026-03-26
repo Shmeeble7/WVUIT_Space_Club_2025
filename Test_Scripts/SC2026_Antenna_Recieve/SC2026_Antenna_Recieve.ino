@@ -1,17 +1,52 @@
+#define SERIAL_RX_BUFFER_SIZE 256
+#define SERIAL_TX_BUFFER_SIZE 256
+#define MAX_PACKET_SIZE 256
 
-#define MAX_PACKET_SIZE 64
 #define XBee Serial1 
+
+#include <SD.h>
+#include <SoftwareSerial.h>
+#include <stdint.h>
+#include <Wire.h>
+
+int sd = BUILTIN_SDCARD;
+File AntennaRecieveData;
+
+const int lightpin = 13;
 
 void setup() 
 {
   Serial.begin(9600);
-  Serial1.begin(9600);
-  while (!Serial1)
-    delay(10);
- 
-  // Start XBee serial communication
   XBee.begin(9600);
+
+  pinMode(lightpin, OUTPUT);
   
+  if (!SD.begin(sd))
+  {
+    //This will blink the built-in LED once every second if the SD card fails to initialize
+    while (1)
+    {
+      digitalWrite(lightpin, HIGH);
+      delay(1000);
+      digitalWrite(lightpin, LOW);
+      delay(1000);
+    }
+  }
+  else
+  {
+    //Create the file if it doesn't exist
+    Serial.println("SD card looks good my G");
+    AntennaRecieveData = SD.open("AntennaRecieveData.txt", FILE_WRITE);
+    if (AntennaRecieveData)
+    {
+      AntennaRecieveData.println("------- Starting new run -------");
+      AntennaRecieveData.println();
+      AntennaRecieveData.close();
+    }
+  }
+
+  AntennaRecieveData = SD.open("AntennaRecieveData.txt", FILE_WRITE);
+  Serial.print("Reciever configured");
 
 }
 
@@ -33,8 +68,9 @@ void antennaReceive()
 
     if (c == '<')
     {
-      index = 0;
       receiving = true;
+      index = 0;
+      memset(buffer, 0, MAX_PACKET_SIZE);
     }
     else if (c == '>' && receiving)
     {
@@ -49,6 +85,11 @@ void antennaReceive()
       {
         buffer[index++] = c;
       }
+      else
+      {
+        receiving = false;
+        index = 0;
+      }
     }
   }
 }
@@ -59,11 +100,12 @@ void processPacket(char* packet)
 
   if (separator == NULL)
   {
-    Serial.println("Invalid packet format");
+    Serial.print("Invalid packet format: ");
+    Serial.println(packet);
     return;
   }
 
-  *separator = '\0';   // Split string
+  *separator = '\0';
   char* message = packet;
   char* checksumStr = separator + 1;
 
@@ -79,9 +121,18 @@ void processPacket(char* packet)
   {
     Serial.print("Valid packet received: ");
     Serial.println(message);
+  
+    if (AntennaRecieveData)
+    {
+      AntennaRecieveData.print(millis()/1000.0);
+      AntennaRecieveData.print(" ");
+      AntennaRecieveData.println(message);
+      AntennaRecieveData.flush();
+    }
   }
   else
   {
-    Serial.println("Checksum failed");
+    Serial.print("Checksum failed: ");
+    Serial.println(packet);
   }
 }
